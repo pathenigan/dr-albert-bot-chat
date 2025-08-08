@@ -4,6 +4,8 @@ const path = require('path');
 const {execFile} = require('child_process');
 
 const PORT = process.env.PORT || 3000;
+const BOOKING_URL = process.env.BOOKING_URL || 'https://ai.henigan.io/chatbot-page';
+const SELFPAY_URL = process.env.SELFPAY_URL || 'https://www.albertplasticsurgery.com/patient-resources/financing/';
 const TMP_DIR = path.join(__dirname, 'tmp');
 
 function send(res, code, body, headers={}) {
@@ -104,13 +106,13 @@ const server = http.createServer(async (req, res) => {
       fs.rm(frontPath, {force:true}, ()=>{});
       fs.rm(backPath, {force:true}, ()=>{});
 
-      if (planType === 'NON-COMMERCIAL') return send(res, 200, {success:false, message:'Non-commercial plan detected (e.g., Medicare/Medicaid).'});
-      if (!hasOON) return send(res, 200, {success:false, message:'Your plan does not show out-of-network benefits.'});
+      if (planType === 'NON-COMMERCIAL') return send(res, 200, { success:false, message:`Unfortunately, your insurance is not eligible for coverage at Dr. Albert’s office. You can still book a self-pay consultation here: ${SELFPAY_URL}` });
+      if (!hasOON) return send(res, 200, { success:false, message:`Unfortunately, your insurance is not eligible for coverage at Dr. Albert’s office. You can still book a self-pay consultation here: ${SELFPAY_URL}` });
 
       return send(res, 200, {
         success: true,
         message: 'You’re eligible to move forward.',
-        link: 'https://calendly.com/albertplasticsurgery/econsult',
+        link: BOOKING_URL,
         details: {planType, hasOON, insurer, memberId, groupNumber, planName}
       });
     } catch (e) {

@@ -62,7 +62,7 @@ $send.onclick = async () => {
     typing(false);
     if (data.success && data.link) {
       bubble("You’re eligible to move forward.");
-      bubble(`<div class="link"><a target="_blank" href="${data.link}">Book your consultation</a></div>`,'left',true);
+      bubble(`<div class="link"><a target="_blank" href="${data.link}">Continue to the booking bot</a></div>`,'left',true);
     } else {
       bubble(data.message || 'Not eligible.');
     }
