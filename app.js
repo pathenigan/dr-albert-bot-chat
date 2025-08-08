@@ -61,11 +61,11 @@ $send.onclick = async () => {
     typing(false);
     if (data.success && data.link) {
       bubble("You’re eligible to move forward. Redirecting to the booking bot…");
-      // Auto-redirect immediately
-      window.location.href = data.link;
+      setTimeout(()=>{ window.location.href = data.link; }, 1500);
       return;
     } else {
-      bubble(data.message || 'Not eligible.');
+      bubble("Unfortunately, your insurance is not eligible for coverage at Dr. Albert’s office. We're going to redirect you to our self pay option.");
+      setTimeout(()=>{ window.location.href = "https://www.albertplasticsurgery.com/patient-resources/financing/"; }, 5500);
     }
   } catch (e) {
     typing(false);
