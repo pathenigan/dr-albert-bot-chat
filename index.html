@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Dr. Albert — Insurance Pre-Check</title>
+  <link rel="stylesheet" href="/public/style.css"/>
+</head>
+<body>
+  <div class="page">
+    <div class="card">
+      <header class="card-header">
+        <div class="brand">Insurance Pre‑Check</div>
+      </header>
+      <main class="card-body">
+        <div class="chat">
+          <div id="messages" class="messages"></div>
+          <div class="composer">
+            <input id="fileFront" type="file" accept="image/*" hidden/>
+            <input id="fileBack" type="file" accept="image/*" hidden/>
+            <div class="actions">
+              <button id="attach" class="btn">Upload card photos</button>
+              <button id="send" class="btn primary" disabled>Verify</button>
+            </div>
+            <div class="hint"><a id="emailMe" href="#" onclick="alert('We can add an email-me-later flow next.');return false;">Don’t want to finish now? Click here and we’ll email you.</a></div>
+          </div>
+        </div>
+      </main>
+      <footer class="card-footer">
+        <span class="foot-left"></span>
+        <span class="foot-right">NEXT →</span>
+      </footer>
+    </div>
+  </div>
+  <script src="/public/app.js"></script>
+</body>
+</html>
