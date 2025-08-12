@@ -4,9 +4,9 @@ const path = require('path');
 const {execFile} = require('child_process');
 
 const PORT = process.env.PORT || 3000;
+const TMP_DIR = path.join(__dirname, 'tmp');
 const BOOKING_URL = process.env.BOOKING_URL || 'https://ai.henigan.io/chatbot-page';
 const SELFPAY_URL = process.env.SELFPAY_URL || 'https://www.albertplasticsurgery.com/patient-resources/financing/';
-const TMP_DIR = path.join(__dirname, 'tmp');
 
 function send(res, code, body, headers={}) {
   const h = Object.assign({'Content-Type': 'application/json'}, headers);
@@ -28,7 +28,7 @@ function toJSON(req) {
 function serveFile(res, p, type) {
   try {
     const data = fs.readFileSync(p);
-    res.writeHead(200, {'Content-Type': type});
+    res.writeHead(200, {'Content-Type': type, 'Cache-Control': 'no-store, must-revalidate'});
     res.end(data);
   } catch {
     res.writeHead(404); res.end('Not found');
