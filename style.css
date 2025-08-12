@@ -1,121 +1,24 @@
 :root{
   --brand-green: #365856FF;
-  --page-bg: #F1F3F2FF;
-  --link-blue: #0b5cff;
 }
-*{box-sizing:border-box}
-html,body{height:100%}
 body{
-  margin:0;
-  background: var(--page-bg);
-  font-family: Palatino, 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
-  color:#0f1721;
-}
-.page{
-  min-height:100vh;
-  display:grid;
-  place-items:center;
-  padding:32px 16px;
-}
-.card{
-  width:min(980px,94vw);
-  background:#fff;
-  border-radius:16px;
-  box-shadow:0 16px 40px rgba(0,0,0,.12);
-  display:grid;
-  grid-template-rows:auto 1fr auto;
-  overflow:hidden;
-}
-.card-header{
-  padding:20px 24px;
-  background:#fff;
-}
-.brand{
-  font-weight:600;
-  font-size:22px;
-}
-.card-body{
-  padding:0 24px 16px 24px;
-}
-.card-footer{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  background: var(--brand-green);
-  color:#fff;
-  padding:18px 24px;
-}
-.card-footer .foot-right{
-  font-weight:600;
-  letter-spacing:.5px;
-}
-.chat{
-  background:#fff;
-  border-radius:12px;
-  border:1px solid #e6e6e6;
-  overflow:hidden;
-  display:grid;
-  grid-template-rows:1fr auto;
-  height:min(70vh,680px);
-}
-.messages{
-  padding:18px;
-  overflow-y:auto;
-  background:#fff;
+  font-size:18px;
+  line-height:1.5;
 }
 .msg{
-  max-width:72%;
-  margin:10px 0;
-  padding:12px 14px;
-  border-radius:16px;
-  line-height:1.4;
-  white-space:pre-wrap;
   font-size:18px;
+  line-height:1.5;
 }
-.left{
-  background:#ffffff;
-  border:1px solid #e8e8e8;
-  border-bottom-left-radius:4px;
-}
-.right{
-  background:#111;
-  color:#fff;
-  border-bottom-right-radius:4px;
-  margin-left:auto;
-}
-.preview{
-  display:flex; gap:10px; margin-top:6px;
-}
-.preview img{
-  height:72px; border-radius:8px; border:1px solid #ddd;
-}
-.composer{
-  border-top:1px solid #eee;
-  background:#fff;
-  padding:12px 12px 16px;
-}
-.actions{display:flex; gap:10px; flex-wrap:wrap;}
 .btn{
-  padding:10px 14px;
-  border-radius:10px;
-  border:0;
-  background:#111;
-  color:#fff;
-  cursor:pointer;
-  font-family:Palatino, 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
-  font-size:16px;
-}
-.btn.primary{
   background: var(--brand-green);
+  color:#fff;
+  border:none;
+  padding:10px 16px;
+  border-radius:8px;
+  cursor:pointer;
+  font-size:18px;
+  font-family: inherit;
 }
-.btn[disabled]{opacity:.5; cursor:not-allowed;}
-.hint{margin-top:6px; font-size:14px}
-.hint a{color: var(--link-blue); text-decoration:none}
-.hint a:hover{text-decoration:underline}
-.typing{opacity:.7; font-style:italic}
-
-@media (max-width:640px){
-  .msg{font-size:16px}
-  .card-footer{padding:14px 16px}
-  .brand{font-size:18px}
+.btn:hover{
+  background: #2c4645;
 }
