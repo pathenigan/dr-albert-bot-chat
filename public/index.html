@@ -1,23 +1,19 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Dr. Albert — Chat Intake</title>
-  <link rel="stylesheet" href="/public/style.css"/>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Insurance Pre-Check</title>
+  <link rel="stylesheet" href="/public/style.css">
 </head>
 <body>
-<div class="wrapper">
-  <div class="chat">
-    <div id="messages" class="messages"></div>
-    <div class="composer">
-      <input id="fileFront" type="file" accept="image/*" hidden/>
-      <input id="fileBack" type="file" accept="image/*" hidden/>
-      <button id="attach">Upload card photos</button>
-      <button id="send" disabled>Verify</button>
-    </div>
+  <div id="messages"></div>
+  <div class="controls">
+    <input id="front" type="file" accept="image/*" hidden>
+    <input id="back" type="file" accept="image/*" hidden>
+    <button id="attach">Upload card photos</button>
+    <button id="send" disabled>Verify</button>
   </div>
-</div>
-<script src="/public/app.js"></script>
+  <script src="/public/app.js"></script>
 </body>
 </html>
