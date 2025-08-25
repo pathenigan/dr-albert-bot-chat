@@ -1,75 +1,87 @@
-const $m = document.getElementById('messages');
-const $front = document.getElementById('fileFront');
-const $back = document.getElementById('fileBack');
-const $attach = document.getElementById('attach');
-const $send = document.getElementById('send');
+// Chatbot client script
+const messagesDiv = document.getElementById('messages');
+const frontInput = document.getElementById('front');
+const backInput = document.getElementById('back');
+const attachBtn = document.getElementById('attach');
+const sendBtn = document.getElementById('send');
 
-function bubble(text, side='left', html=false) {
+function bubble(text, side = 'left', html = false) {
   const d = document.createElement('div');
-  d.className = `msg ${side}`;
-  d[html ? 'innerHTML' : 'textContent'] = text;
-  $m.appendChild(d);
-  $m.scrollTop = $m.scrollHeight;
+  d.className = 'msg ' + side;
+  if (html) {
+    d.innerHTML = text;
+  } else {
+    d.textContent = text;
+  }
+  messagesDiv.appendChild(d);
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
   return d;
 }
 
-function typing(on=true) {
-  if (on) {
-    const n = bubble('typing…','left');
-    n.classList.add('typing');
-    return n;
-  } else {
-    const t = $m.querySelector('.typing');
-    if (t) t.remove();
-  }
+async function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
-function toB64(file) { return new Promise((res, rej)=>{
-  const r = new FileReader(); r.onload=()=>res(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(file);
-});}
+let frontB64 = null;
+let backB64 = null;
 
-let frontB64 = null, backB64 = null;
-bubble("Hi, I’m the intake assistant. I’ll check your insurance for out-of-network coverage so we know if you qualify to book with Dr. Albert.\n\nFirst, upload the FRONT of your insurance card, then the BACK.");
+// Initial instruction
+bubble("Hi, I'm the intake assistant. Upload the FRONT of your insurance card, then the BACK.");
 
-$attach.onclick = () => {
-  if (!frontB64) $front.click(); else $back.click();
-};
-
-$front.onchange = async () => {
-  if (!$front.files[0]) return;
-  frontB64 = await toB64($front.files[0]);
-  const url = URL.createObjectURL($front.files[0]);
-  bubble(`<div>Got the front.</div><div class="preview"><img src="${url}"/></div>`,'right',true);
-  if (!backB64) bubble("Now upload the BACK of the card.");
-  if (frontB64 && backB64) $send.disabled = false;
-};
-
-$back.onchange = async () => {
-  if (!$back.files[0]) return;
-  backB64 = await toB64($back.files[0]);
-  const url = URL.createObjectURL($back.files[0]);
-  bubble(`<div>Got the back.</div><div class="preview"><img src="${url}"/></div>`,'right',true);
-  if (frontB64 && backB64) $send.disabled = false;
-};
-
-$send.onclick = async () => {
-  $send.disabled = true;
-  const t = typing(true);
-  try {
-    const res = await fetch('/api/submit', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({front: frontB64, back: backB64})});
-    const data = await res.json();
-    typing(false);
-    if (data.success && data.link) {
-      bubble("You’re eligible to move forward. Redirecting now…");
-      setTimeout(()=>{ window.location.href = 'https://ai.henigan.io/picture'; }, 1500);
-      return;
-    } else {
-      bubble("Unfortunately, your insurance is not eligible for coverage at Dr. Albert’s office. We're going to redirect you to our self pay option.");
-      setTimeout(()=>{ window.location.href = 'https://www.albertplasticsurgery.com/patient-resources/financing/'; }, 5500);
-    }
-  } catch (e) {
-    typing(false);
-    bubble('Server error. Try again.');
+attachBtn.onclick = () => {
+  if (!frontB64) {
+    frontInput.click();
+  } else {
+    backInput.click();
   }
-  $send.disabled = false;
+};
+
+frontInput.onchange = async () => {
+  if (!frontInput.files[0]) return;
+  frontB64 = await toBase64(frontInput.files[0]);
+  bubble('Got the front.', 'right');
+  if (!backB64) bubble('Now upload the BACK of the card.');
+  if (frontB64 && backB64) sendBtn.disabled = false;
+};
+
+backInput.onchange = async () => {
+  if (!backInput.files[0]) return;
+  backB64 = await toBase64(backInput.files[0]);
+  bubble('Got the back.', 'right');
+  if (frontB64 && backB64) sendBtn.disabled = false;
+};
+
+sendBtn.onclick = async () => {
+  sendBtn.disabled = true;
+  bubble('Checking…');
+  try {
+    const res = await fetch('/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ front: frontB64, back: backB64 }),
+    });
+    const data = await res.json();
+    if (data.success && data.link) {
+      // Pass case: inform and redirect to booking bot
+      bubble("You’re eligible to move forward.");
+      setTimeout(() => {
+        window.location.href = data.link;
+      }, 1500);
+    } else {
+      // Fail case: show message, then redirect to self-pay after delay
+      bubble("Unfortunately, your insurance is not eligible for coverage at Dr. Albert’s office. We're going to redirect you to our self pay option.");
+      setTimeout(() => {
+        window.location.href = 'https://www.albertplasticsurgery.com/patient-resources/financing/';
+      }, 5500);
+    }
+  } catch (err) {
+    console.error(err);
+    bubble('Server error. Please try again later.');
+  }
+  sendBtn.disabled = false;
 };
