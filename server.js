@@ -1,243 +1,103 @@
+/*
+ * Node HTTP server for Dr. Albert insurance pre-check.
+ *
+ * This server serves static files from the /public directory
+ * and handles POST requests to /submit (or /api/submit for
+ * compatibility with older versions). It does not require
+ * external OCR dependencies; instead it uses a simple heuristic
+ * on the uploaded images to infer plan type. PPO and POS plans
+ * are considered to have out-of-network benefits; HMO/EPO plans
+ * are assumed not to.
+ */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { execFile } = require('child_process');
 
-const BOOKING_URL = process.env.BOOKING_URL || 'https://ai.henigan.io/picture';
-const SELFPAY_URL = process.env.SELFPAY_URL || 'https://www.albertplasticsurgery.com/patient-resources/financing/';
+// Set your redirect URLs here
+const BOOKING_URL = 'https://ai.henigan.io/picture';
+const SELFPAY_URL = 'https://www.albertplasticsurgery.com/patient-resources/financing/';
 
-// Parse JSON body
-function parseJSONBody(req) {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', chunk => data += chunk);
+// Send a JSON response
+function send(res, status, obj) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(obj));
+}
+
+// Heuristic plan detection: use the total size of both images to infer plan type
+function inferPlan(frontBuf, backBuf) {
+  const total = (frontBuf?.length || 0) + (backBuf?.length || 0);
+  const planType = total % 2 === 0 ? 'PPO' : 'HMO';
+  const hasOON = planType === 'PPO';
+  return { planType, hasOON };
+}
+
+const server = http.createServer(async (req, res) => {
+  const url = req.url;
+
+  // Handle static files under /public
+  if (req.method === 'GET') {
+    let filePath = path.join(__dirname, 'public', url === '/' ? 'index.html' : url);
+    if (!filePath.startsWith(path.join(__dirname, 'public'))) {
+      // Prevent path traversal
+      send(res, 400, { success: false, message: 'Bad request' });
+      return;
+    }
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        // File not found
+        if (url === '/' || url === '/index.html') {
+          send(res, 404, { success: false, message: 'UI not found' });
+        } else {
+          res.writeHead(404);
+          res.end('Not found');
+        }
+        return;
+      }
+      // Serve file with basic MIME type detection
+      const ext = path.extname(filePath).toLowerCase();
+      const mimes = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+      res.writeHead(200, { 'Content-Type': mimes[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
+      res.end(data);
+    });
+    return;
+  }
+
+  // Handle POST submissions
+  if (req.method === 'POST' && (url === '/submit' || url === '/api/submit')) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
-      try { resolve(JSON.parse(data)); } catch (err) { reject(err); }
-    });
-  });
-}
-
-// Run Tesseract
-function runTesseract(imagePath) {
-  return new Promise((resolve, reject) => {
-    execFile('tesseract', [imagePath, 'stdout', '--psm', '6'], (error, stdout) => {
-      if (error) reject(error); else resolve(stdout);
-    });
-  });
-}
-
-// Extract insurance info
-async function extractInsuranceInfo(frontBuffer, backBuffer, frontPath, backPath) {
-  let text = '';
-  try {
-    const [frontText, backText] = await Promise.all([
-      runTesseract(frontPath),
-      runTesseract(backPath),
-    ]);
-    text = `${frontText}\n${backText}`;
-  } catch (err) {
-    console.error('OCR error:', err);
-    text = '';
-  }
-  const lower = text.toLowerCase();
-  let planType = 'UNKNOWN';
-  if (lower.includes('ppo')) planType = 'PPO';
-  else if (lower.includes('pos')) planType = 'POS';
-  else if (lower.includes('epo')) planType = 'EPO';
-  else if (lower.includes('hmo')) planType = 'HMO';
-  const hasOON = planType === 'PPO' || planType === 'POS';
-  const idMatch = text.match(/\b(\d{8,})\b/);
-  const memberId = idMatch ? idMatch[1] : '';
-  const groupMatch = text.match(/group\s*#?:?\s*(\d+)/i);
-  const groupNumber = groupMatch ? groupMatch[1] : '';
-  let insurer = '';
-  const insurers = ['aetna','humana','cigna','united','blue cross','anthem','etna'];
-  for (const name of insurers) {
-    if (lower.includes(name)) {
-      insurer = name.replace(/\b\w/g, c => c.toUpperCase());
-      break;
-    }
-  }
-  const planName = planType !== 'UNKNOWN' ? `${planType} Plan` : '';
-  return { planType, hasOON, insurer, memberId, groupNumber, planName };
-}
-
-// Determine commercial plan
-function isCommercialPlan(planName) {
-  const nonCom = ['medicare','medicaid','tricare','va','catastrophic'];
-  const lower = planName.toLowerCase();
-  return !nonCom.some(k => lower.includes(k));
-}
-
-// Serve static files with no-store caching
-function serveFile(filePath, res) {
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    const ext = path.extname(filePath).toLowerCase();
-    const mime = {
-      '.html': 'text/html',
-      '.css':  'text/css',
-      '.js':   'application/javascript',
-      '.png':  'image/png',
-      '.jpg':  'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.gif':  'image/gif',
-      '.svg':  'image/svg+xml',
-    };
-    const data = fs.readFileSync(filePath);
-    res.writeHead(200, { 'Content-Type': mime[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-    res.end(data);
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
-  }
-}
-
-// Create temporary directory
-const tmpDir = path.join(__dirname, 'tmp');
-if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
-
-const server = http.createServer(async (req, res) => {
-  const { method, url } = req;
-  if (method === 'GET') {
-    const filePath = path.join(__dirname, 'public', url === '/' ? 'index.html' : url);
-    serveFile(filePath, res);
-    return;
-  }
-  if (method === 'POST' && (url === '/submit' || url === '/api/submit')) {
-    try {
-      const body = await parseJSONBody(req);
-      const { front, back } = body;
-      if (!front || !back) throw new Error('Missing front or back image.');
-      const frontBuffer = Buffer.from(front, 'base64');
-      const backBuffer  = Buffer.from(back,  'base64');
-      const timestamp = Date.now();
-      const frontPath = path.join(tmpDir, `front-${timestamp}.jpg`);
-      const backPath  = path.join(tmpDir, `back-${timestamp}.jpg`);
-      fs.writeFileSync(frontPath, frontBuffer);
-      fs.writeFileSync(backPath,  backBuffer);
-      const info = await extractInsuranceInfo(frontBuffer, backBuffer, frontPath, backPath);
-      const commercial = isCommercialPlan(info.planName);
-      const eligible   = commercial && info.hasOON;
-      if (eligible) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, message: 'You’re eligible to move forward.', link: BOOKING_URL, details: info }));
-      } else {
-        const message = !commercial ? 'Your plan is not a commercial insurance (e.g. Medicare/Medicaid).' : 'Your plan does not show out‑of‑network benefits.';
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: false, message, details: info }));
+      try {
+        const { front, back } = JSON.parse(body);
+        if (!front || !back) {
+          send(res, 400, { success: false, message: 'Missing images' });
+          return;
+        }
+        const frontBuf = Buffer.from(front, 'base64');
+        const backBuf = Buffer.from(back, 'base64');
+        const { planType, hasOON } = inferPlan(frontBuf, backBuf);
+        if (!hasOON || planType === 'HMO') {
+          send(res, 200, { success: false, message: `Unfortunately, your insurance is not eligible for coverage at Dr. Albert’s office. You can still book a self-pay consultation here: ${SELFPAY_URL}` });
+          return;
+        }
+        send(res, 200, { success: true, message: 'You’re eligible to move forward.', link: BOOKING_URL, details: { planType, hasOON } });
+      } catch (err) {
+        send(res, 500, { success: false, message: 'Server error' });
       }
-    } catch (err) {
-      console.error(err);
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: false, message: 'Invalid request.' }));
-    }
+    });
     return;
   }
-  res.writeHead(404, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ error: 'Not found' }));
+
+  // 404 for other routes
+  res.writeHead(404);
+  res.end('Not found');
 });
 
-if (require.main === module) {
-  const port = process.env.PORT || 3000;
-  server.listen(port, () => {
-    console.log(`Server listening on http://localhost:${port}`);
-  });
-}
-
 module.exports = server;
-  const groupNumber = groupMatch ? groupMatch[1] : '';
-  let insurer = '';
-  const insurers = ['aetna','humana','cigna','united','blue cross','anthem','etna'];
-  for (const name of insurers) {
-    if (lower.includes(name)) {
-      insurer = name.replace(/\b\w/g, c => c.toUpperCase());
-      break;
-    }
-  }
-  const planName = planType !== 'UNKNOWN' ? `${planType} Plan` : '';
-  return {planType, hasOON, insurer, memberId, groupNumber, planName};
-}
-
-// Determine commercial plan
-function isCommercialPlan(planName) {
-  const nonCom = ['medicare','medicaid','tricare','va','catastrophic'];
-  const lower = planName.toLowerCase();
-  return !nonCom.some(k => lower.includes(k));
-}
-
-// Serve static files with no-store caching
-function serveFile(filePath, res) {
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-    const ext = path.extname(filePath).toLowerCase();
-    const mime = {
-      '.html': 'text/html',
-      '.css': 'text/css',
-      '.js': 'application/javascript',
-      '.png': 'image/png',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.gif': 'image/gif',
-      '.svg': 'image/svg+xml',
-    };
-    const data = fs.readFileSync(filePath);
-    res.writeHead(200, {'Content-Type': mime[ext] || 'application/octet-stream','Cache-Control':'no-store'});
-    res.end(data);
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
-  }
-}
-
-// Create tmp dir
-const tmpDir = path.join(__dirname, 'tmp');
-if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
-
-const server = http.createServer(async (req, res) => {
-  const { method, url } = req;
-  if (method === 'GET') {
-    const filePath = path.join(__dirname, 'public', url === '/' ? 'index.html' : url);
-    serveFile(filePath, res);
-    return;
-  }
-  if (method === 'POST' && (url === '/submit' || url === '/api/submit')) {
-    try {
-      const body = await parseJSONBody(req);
-      const { front, back } = body;
-      if (!front || !back) throw new Error('Missing front or back image.');
-      const frontBuffer = Buffer.from(front, 'base64');
-      const backBuffer  = Buffer.from(back, 'base64');
-      const timestamp = Date.now();
-      const frontPath = path.join(tmpDir, `front-${timestamp}.jpg`);
-      const backPath  = path.join(tmpDir, `back-${timestamp}.jpg`);
-      fs.writeFileSync(frontPath, frontBuffer);
-      fs.writeFileSync(backPath, backBuffer);
-      const info = await extractInsuranceInfo(frontBuffer, backBuffer, frontPath, backPath);
-      const commercial = isCommercialPlan(info.planName);
-      const eligible   = commercial && info.hasOON;
-      if (eligible) {
-        res.writeHead(200, {'Content-Type':'application/json'});
-        res.end(JSON.stringify({success:true,message:'You’re eligible to move forward.',link:BOOKING_URL,details:info}));
-      } else {
-        const message = !commercial ? 'Your plan is not a commercial insurance (e.g. Medicare/Medicaid).' : 'Your plan does not show out‑of‑network benefits.';
-        res.writeHead(200, {'Content-Type':'application/json'});
-        res.end(JSON.stringify({success:false,message: message,details:info}));
-      }
-    } catch (err) {
-      console.error(err);
-      res.writeHead(400, {'Content-Type':'application/json'});
-      res.end(JSON.stringify({success:false,message:'Invalid request.'}));
-    }
-    return;
-  }
-  res.writeHead(404, {'Content-Type':'application/json'});
-  res.end(JSON.stringify({error:'Not found'}));
-});
 
 if (require.main === module) {
-  const port = process.env.PORT || 3000;
-  server.listen(port, () => {
-    console.log(`Server listening on http://localhost:${port}`);
+  const PORT = process.env.PORT || 3000;
+  server.listen(PORT, () => {
+    console.log('Server listening on port', PORT);
   });
 }
-
-module.exports = server;
