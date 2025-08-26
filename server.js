@@ -1,19 +1,16 @@
 /*
- * Node HTTP server for Dr. Albert insurance pre-check.
+ * Node HTTP server for Dr. Albert insurance pre-check (v2).
  *
  * This server serves static files from the /public directory
- * and handles POST requests to /submit (or /api/submit for
- * compatibility with older versions). It does not require
- * external OCR dependencies; instead it uses a simple heuristic
- * on the uploaded images to infer plan type. PPO and POS plans
- * are considered to have out-of-network benefits; HMO/EPO plans
- * are assumed not to.
+ * and handles POST requests to /submit (or /api/submit).
+ * It uses a simple heuristic on the uploaded images to infer plan type.
+ * PPO and POS plans are considered to have out-of-network benefits; HMO/EPO plans are not.
  */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-// Set your redirect URLs here
+// Configure redirect URLs
 const BOOKING_URL = 'https://ai.henigan.io/picture';
 const SELFPAY_URL = 'https://www.albertplasticsurgery.com/patient-resources/financing/';
 
@@ -23,28 +20,32 @@ function send(res, status, obj) {
   res.end(JSON.stringify(obj));
 }
 
-// Heuristic plan detection: use the total size of both images to infer plan type
+// Simple heuristic: infer plan type from total length of buffers
 function inferPlan(frontBuf, backBuf) {
   const total = (frontBuf?.length || 0) + (backBuf?.length || 0);
   const planType = total % 2 === 0 ? 'PPO' : 'HMO';
-  const hasOON = planType === 'PPO';
-  return { planType, hasOON };
+  return { planType, hasOON: planType === 'PPO' };
 }
 
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
   const url = req.url;
-
-  // Handle static files under /public
+  // Serve static files and index
   if (req.method === 'GET') {
-    let filePath = path.join(__dirname, 'public', url === '/' ? 'index.html' : url);
-    if (!filePath.startsWith(path.join(__dirname, 'public'))) {
-      // Prevent path traversal
+    let filePath;
+    if (url === '/' || url === '/index.html') {
+      filePath = path.join(__dirname, 'public', 'index.html');
+    } else if (url.startsWith('/public/')) {
+      filePath = path.join(__dirname, url);
+    } else {
+      filePath = path.join(__dirname, 'public', url);
+    }
+    const resolved = path.resolve(filePath);
+    if (!resolved.startsWith(path.resolve(__dirname))) {
       send(res, 400, { success: false, message: 'Bad request' });
       return;
     }
-    fs.readFile(filePath, (err, data) => {
+    fs.readFile(resolved, (err, data) => {
       if (err) {
-        // File not found
         if (url === '/' || url === '/index.html') {
           send(res, 404, { success: false, message: 'UI not found' });
         } else {
@@ -53,16 +54,21 @@ const server = http.createServer(async (req, res) => {
         }
         return;
       }
-      // Serve file with basic MIME type detection
-      const ext = path.extname(filePath).toLowerCase();
-      const mimes = { '.html': 'text/html', '.css': 'text/css', '.js': 'application/javascript', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg' };
+      const ext = path.extname(resolved).toLowerCase();
+      const mimes = {
+        '.html': 'text/html',
+        '.css': 'text/css',
+        '.js': 'application/javascript',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg'
+      };
       res.writeHead(200, { 'Content-Type': mimes[ext] || 'application/octet-stream', 'Cache-Control': 'no-store' });
       res.end(data);
     });
     return;
   }
-
-  // Handle POST submissions
+  // Handle submissions
   if (req.method === 'POST' && (url === '/submit' || url === '/api/submit')) {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -87,8 +93,7 @@ const server = http.createServer(async (req, res) => {
     });
     return;
   }
-
-  // 404 for other routes
+  // Fallback 404
   res.writeHead(404);
   res.end('Not found');
 });
