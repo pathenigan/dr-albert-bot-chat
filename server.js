@@ -1,72 +1,85 @@
 /*
- * Node HTTP server for Dr. Albert insurance verification with OCR.
+ * Node HTTP server for Dr. Albert insurance verification with improved OCR logic.
  *
- * This implementation uses the open‑source tesseract.js library to
- * perform optical character recognition (OCR) on uploaded insurance
- * card images. It extracts plan identifiers (e.g. PPO, HMO) and
- * determines eligibility based on whether the plan is commercial and
- * offers out‑of‑network benefits.
- *
- * Dependencies (add to your package.json and install via npm):
- *   "tesseract.js": "^4.0.2",
- *   "@tensorflow/tfjs-node": "^4.10.0" (optional but speeds up OCR)
+ * This version enhances the plan parsing heuristics to reduce false positives. It
+ * inspects the OCR text for multiple plan keywords (PPO, POS, HMO, EPO) and
+ * Medicare/Medicaid indicators. Conflicting plan types or presence of
+ * non-commercial keywords cause the request to be rejected. Unknown or
+ * ambiguous plans are also rejected.
  */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { createWorker } = require('tesseract.js');
 
-// Configure redirect URLs
 const BOOKING_URL = 'https://ai.henigan.io/picture';
 const SELFPAY_URL = 'https://www.albertplasticsurgery.com/patient-resources/financing/';
 
-// Initialize a single tesseract worker. Loading the worker once
-// improves performance by caching language data across requests.
+// Initialize OCR worker
 const worker = createWorker({ logger: m => console.log(m) });
-let workerReady = false;
-
+let ready = false;
 async function ensureWorker() {
-  if (!workerReady) {
+  if (!ready) {
     await worker.load();
     await worker.loadLanguage('eng');
     await worker.initialize('eng');
-    workerReady = true;
+    ready = true;
   }
 }
 
-// Send a JSON response
+// Helper to send JSON
 function sendJson(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(obj));
 }
 
-// Parse OCR text to determine plan information.
+// Improved plan parser: detects multiple plan keywords and conflicts
 function parsePlan(text) {
-  const upper = text.toUpperCase();
-  // Check for non‑commercial indicators
-  const nonCommercial = /(MEDICARE|MEDICAID|TRICARE|VA|CATASTROPHIC)/.test(upper);
-  // Identify plan type by keywords
+  const up = text.toUpperCase();
+  const hasPPO = /\bPPO\b/.test(up);
+  const hasPOS = /\bPOS\b/.test(up);
+  const hasHMO = /\bHMO\b/.test(up);
+  const hasEPO = /\bEPO\b/.test(up);
+  const hasMedicare = /MEDICARE/.test(up);
+  const hasMedicaid = /MEDICAID/.test(up);
+  const hasOtherNonCom = /(TRICARE|VA|CATASTROPHIC)/.test(up);
+  // If any non-commercial indicator present
+  if (hasMedicare || hasMedicaid || hasOtherNonCom) {
+    return { planType: 'NON-COMMERCIAL', hasOON: false, conflict: true };
+  }
+  // Count how many plan types appear
+  const matches = [hasPPO, hasPOS, hasHMO, hasEPO].filter(Boolean).length;
+  // If multiple plan keywords present, treat as conflict
+  if (matches > 1) {
+    return { planType: 'CONFLICT', hasOON: false, conflict: true };
+  }
   let planType = 'UNKNOWN';
-  if (/\bPPO\b/.test(upper)) planType = 'PPO';
-  else if (/\bPOS\b/.test(upper)) planType = 'POS';
-  else if (/\bEPO\b/.test(upper)) planType = 'EPO';
-  else if (/\bHMO\b/.test(upper)) planType = 'HMO';
-  // Determine out‑of‑network benefits: PPO and POS typically allow OON
-  const hasOON = planType === 'PPO' || planType === 'POS';
-  return { planType, hasOON, nonCommercial };
+  let hasOON = false;
+  if (hasPPO) {
+    planType = 'PPO';
+    hasOON = true;
+  } else if (hasPOS) {
+    planType = 'POS';
+    hasOON = true;
+  } else if (hasHMO) {
+    planType = 'HMO';
+    hasOON = false;
+  } else if (hasEPO) {
+    planType = 'EPO';
+    hasOON = false;
+  }
+  return { planType, hasOON, conflict: false };
 }
 
-// Perform OCR on a Buffer containing an image. Returns recognised text.
-async function recognizeText(buffer) {
+// OCR helper
+async function recognize(buffer) {
   await ensureWorker();
   const { data: { text } } = await worker.recognize(buffer);
   return text;
 }
 
-// HTTP server
 const server = http.createServer((req, res) => {
   const { method, url } = req;
-  // Serve static assets
   if (method === 'GET') {
     let filePath;
     if (url === '/' || url === '/index.html') {
@@ -101,7 +114,6 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
-  // Handle submissions
   if (method === 'POST' && (url === '/submit' || url === '/api/submit')) {
     let body = '';
     req.on('data', chunk => { body += chunk; });
@@ -114,18 +126,17 @@ const server = http.createServer((req, res) => {
         }
         const frontBuf = Buffer.from(front, 'base64');
         const backBuf = Buffer.from(back, 'base64');
-        // Run OCR on both sides
         const [frontText, backText] = await Promise.all([
-          recognizeText(frontBuf),
-          recognizeText(backBuf)
+          recognize(frontBuf),
+          recognize(backBuf)
         ]);
-        const allText = `${frontText}\n${backText}`;
-        const { planType, hasOON, nonCommercial } = parsePlan(allText);
-        if (nonCommercial || !hasOON) {
+        const analysis = parsePlan(`${frontText}\n${backText}`);
+        const { planType, hasOON, conflict } = analysis;
+        if (conflict || !hasOON || planType === 'UNKNOWN') {
           sendJson(res, 200, {
             success: false,
             message: `Unfortunately, your insurance is not eligible for coverage at Dr. Albert’s office. You can still book a self-pay consultation here: ${SELFPAY_URL}`,
-            details: { planType, hasOON, nonCommercial }
+            details: analysis
           });
           return;
         }
@@ -133,7 +144,7 @@ const server = http.createServer((req, res) => {
           success: true,
           message: 'You’re eligible to move forward.',
           link: BOOKING_URL,
-          details: { planType, hasOON, nonCommercial }
+          details: analysis
         });
       } catch (err) {
         console.error(err);
@@ -142,7 +153,6 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
-  // Fallback
   res.writeHead(404);
   res.end('Not found');
 });
